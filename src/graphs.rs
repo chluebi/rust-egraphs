@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct EGraph<'a> {
@@ -131,17 +132,21 @@ impl<'a> EGraph<'a> {
         return expressions;
     }
 
-    pub fn search<'b>(&'a self, pattern: &'b Expression<'a>, max_recursion: usize) -> Vec<(Assignment<'a>, usize)> {
+    pub fn search<'b>(&'a self, pattern: &'b Expression<'a>, max_recursion: usize) -> Vec<(Assignment<'static>, usize)> {
         let mut needles = vec![];
-
+    
         for class_index in 0..self.children.len() {
             for expression in self.extract_all(class_index, max_recursion) {
                 if let Some(assignment) = pattern.structural_match(&expression) {
-                    needles.push((assignment, class_index));
+                    let owned_assignment: HashMap<String, Expression<'static>> = assignment
+                        .into_iter()
+                        .map(|(key, expr)| (key, expr.into_owned())) // Assuming you add into_owned()
+                        .collect();
+                    needles.push((owned_assignment, class_index));
                 }
             }
         }
-
+    
         needles
     }
 }
@@ -187,7 +192,11 @@ pub enum NodeType<'a> {
     MetaVar(&'a str),
     Const(usize),
     Var(&'a str),
+    Neg,
     Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 impl<'a> PartialEq for NodeType<'a> {
@@ -196,7 +205,11 @@ impl<'a> PartialEq for NodeType<'a> {
             (NodeType::MetaVar(a), NodeType::MetaVar(b)) => a == b,
             (NodeType::Const(a), NodeType::Const(b)) => a == b,
             (NodeType::Var(a), NodeType::Var(b)) => a == b,
+            (NodeType::Neg, NodeType::Neg) => true,
             (NodeType::Add, NodeType::Add) => true,
+            (NodeType::Sub, NodeType::Sub) => true,
+            (NodeType::Mul, NodeType::Mul) => true,
+            (NodeType::Div, NodeType::Div) => true,
             _ => false,
         }
     }
@@ -270,6 +283,128 @@ impl<'a> Expression<'a> {
                 Expression {
                     t: self.t.clone(),
                     children: new_children,
+                }
+            }
+        }
+    }
+
+    pub fn into_owned(self) -> Expression<'static> {
+        match self.t {
+            NodeType::MetaVar(s) => Expression { t: NodeType::MetaVar(Box::leak(s.to_string().into_boxed_str())), children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Const(c) => Expression { t: NodeType::Const(c), children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Var(s) => Expression { t: NodeType::Var(Box::leak(s.to_string().into_boxed_str())), children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Neg => Expression { t: NodeType::Neg, children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Add => Expression { t: NodeType::Add, children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Sub => Expression { t: NodeType::Sub, children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Mul => Expression { t: NodeType::Mul, children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+            NodeType::Div => Expression { t: NodeType::Div, children: self.children.into_iter().map(|c| c.into_owned()).collect() },
+        }
+    }
+
+    /// Creates a new constant expression.
+    pub fn constant(value: usize) -> Self {
+        Expression {
+            t: NodeType::Const(value),
+            children: Vec::new(),
+        }
+    }
+
+    /// Creates a new variable expression.
+    pub fn variable(name: &'a str) -> Self {
+        Expression {
+            t: NodeType::Var(name),
+            children: Vec::new(),
+        }
+    }
+
+    /// Creates a new meta-variable expression.
+    pub fn meta_variable(name: &'a str) -> Self {
+        Expression {
+            t: NodeType::MetaVar(name),
+            children: Vec::new(),
+        }
+    }
+
+    /// Creates a new negation expression.
+    pub fn negate(child: Self) -> Self {
+        Expression {
+            t: NodeType::Neg,
+            children: vec![child],
+        }
+    }
+
+    /// Creates a new addition expression.
+    pub fn add(left: Self, right: Self) -> Self {
+        Expression {
+            t: NodeType::Add,
+            children: vec![left, right],
+        }
+    }
+
+    /// Creates a new subtraction expression.
+    pub fn subtract(left: Self, right: Self) -> Self {
+        Expression {
+            t: NodeType::Sub,
+            children: vec![left, right],
+        }
+    }
+
+    /// Creates a new multiplication expression.
+    pub fn multiply(left: Self, right: Self) -> Self {
+        Expression {
+            t: NodeType::Mul,
+            children: vec![left, right],
+        }
+    }
+
+    /// Creates a new division expression.
+    pub fn divide(left: Self, right: Self) -> Self {
+        Expression {
+            t: NodeType::Div,
+            children: vec![left, right],
+        }
+    }
+}
+
+impl<'a> fmt::Display for Expression<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.t {
+            NodeType::MetaVar(s) => write!(f, "?{}", s),
+            NodeType::Const(c) => write!(f, "{}", c),
+            NodeType::Var(v) => write!(f, "{}", v),
+            NodeType::Neg => {
+                if self.children.len() == 1 {
+                    write!(f, "-({})", self.children[0])
+                } else {
+                    write!(f, "-(?)") // Should not happen in a well-formed expression
+                }
+            }
+            NodeType::Add => {
+                if self.children.len() == 2 {
+                    write!(f, "({} + {})", self.children[0], self.children[1])
+                } else {
+                    write!(f, "(? + ?)") // Should not happen in a well-formed expression
+                }
+            }
+            NodeType::Sub => {
+                if self.children.len() == 2 {
+                    write!(f, "({} - {})", self.children[0], self.children[1])
+                } else {
+                    write!(f, "(? - ?)") // Should not happen in a well-formed expression
+                }
+            }
+            NodeType::Mul => {
+                if self.children.len() == 2 {
+                    write!(f, "({} * {})", self.children[0], self.children[1])
+                } else {
+                    write!(f, "(? * ?)") // Should not happen in a well-formed expression
+                }
+            }
+            NodeType::Div => {
+                if self.children.len() == 2 {
+                    write!(f, "({} / {})", self.children[0], self.children[1])
+                } else {
+                    write!(f, "(? / ?)") // Should not happen in a well-formed expression
                 }
             }
         }
