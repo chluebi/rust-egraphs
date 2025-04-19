@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
 pub struct EGraph<'a> {
     pub children: Vec<EClass<'a>>,
 }
@@ -58,12 +60,11 @@ impl<'a> EGraph<'a> {
         return false;
     }
 
-    pub fn union(
-        &mut self,
-        class_index1: usize,
-        class_index2: usize,
-    ) {
-        if class_index1 == class_index2 || class_index1 >= self.children.len() || class_index2 >= self.children.len() {
+    pub fn union(&mut self, class_index1: usize, class_index2: usize) {
+        if class_index1 == class_index2
+            || class_index1 >= self.children.len()
+            || class_index2 >= self.children.len()
+        {
             return;
         }
 
@@ -82,19 +83,15 @@ impl<'a> EGraph<'a> {
         class2.children = vec![];
     }
 
-    pub fn extract_all (
-        &self,
-        class_index: usize,
-        max_recursion: usize,
-    ) -> Vec<Expression> {
+    pub fn extract_all(&self, class_index: usize, max_recursion: usize) -> Vec<Expression> {
         return self.extract_all_helper(class_index, max_recursion, 0);
     }
 
-    pub fn extract_all_helper (
+    pub fn extract_all_helper(
         &self,
         class_index: usize,
         max_recursion: usize,
-        current_recursion: usize
+        current_recursion: usize,
     ) -> Vec<Expression> {
         if current_recursion > max_recursion {
             return vec![];
@@ -111,13 +108,14 @@ impl<'a> EGraph<'a> {
         for node in class.children.iter() {
             let expression = Expression {
                 t: node.t.clone(),
-                children: vec![]
+                children: vec![],
             };
 
             let mut child_expression_lists = vec![];
 
             for child_index in node.children.iter() {
-                let child_expressions = self.extract_all_helper(*child_index, max_recursion, current_recursion+1);
+                let child_expressions =
+                    self.extract_all_helper(*child_index, max_recursion, current_recursion + 1);
                 child_expression_lists.push(child_expressions);
             }
 
@@ -131,6 +129,20 @@ impl<'a> EGraph<'a> {
         }
 
         return expressions;
+    }
+
+    pub fn search<'b>(&'a self, pattern: &'b Expression<'a>, max_recursion: usize) -> Vec<(Assignment<'a>, usize)> {
+        let mut needles = vec![];
+
+        for class_index in 0..self.children.len() {
+            for expression in self.extract_all(class_index, max_recursion) {
+                if let Some(assignment) = pattern.structural_match(&expression) {
+                    needles.push((assignment, class_index));
+                }
+            }
+        }
+
+        needles
     }
 }
 
@@ -159,7 +171,7 @@ fn cartesian_product<T: Clone>(lists: &[Vec<T>]) -> Vec<Vec<T>> {
 #[derive(Debug, Clone)]
 pub struct EClass<'a> {
     representative: usize,
-    children: Vec<Node<'a>>,
+    pub children: Vec<Node<'a>>,
 }
 
 impl EClass<'_> {}
@@ -172,6 +184,7 @@ pub struct Node<'a> {
 
 #[derive(Debug, Clone)]
 pub enum NodeType<'a> {
+    MetaVar(&'a str),
     Const(usize),
     Var(&'a str),
     Add,
@@ -180,6 +193,7 @@ pub enum NodeType<'a> {
 impl<'a> PartialEq for NodeType<'a> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (NodeType::MetaVar(a), NodeType::MetaVar(b)) => a == b,
             (NodeType::Const(a), NodeType::Const(b)) => a == b,
             (NodeType::Var(a), NodeType::Var(b)) => a == b,
             (NodeType::Add, NodeType::Add) => true,
@@ -203,3 +217,61 @@ impl<'a> PartialEq for Expression<'a> {
 }
 
 impl<'a> Eq for Expression<'a> {}
+
+type Assignment<'a> = HashMap<String, Expression<'a>>;
+
+impl<'a> Expression<'a> {
+    pub fn structural_match(&self, expression: &Expression<'a>) -> Option<Assignment<'a>> {
+        match &self.t {
+            NodeType::MetaVar(x) => {
+                let mut map: Assignment = HashMap::new();
+                map.insert(x.to_string(), expression.clone());
+                return Some(map);
+            }
+            _ => {
+                if self.t == expression.t && self.children.len() == expression.children.len() {
+                    let mut assignment: Assignment = HashMap::new();
+                    for (pattern_child, expression_child) in
+                        self.children.iter().zip(expression.children.iter())
+                    {
+                        match pattern_child.structural_match(expression_child) {
+                            Some(child_assignment) => {
+                                for (key, value) in child_assignment {
+                                    if let Some(existing_value) = assignment.get(&key) {
+                                        if existing_value != &value {
+                                            return None; // Inconsistent assignment
+                                        }
+                                    }
+                                    assignment.insert(key, value);
+                                }
+                            }
+                            _ => return None, // Child match failed
+                        }
+                    }
+                    return Some(assignment);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn apply_assignment(&self, assignment: &Assignment<'a>) -> Expression<'a> {
+        match &self.t {
+            NodeType::MetaVar(x) => match assignment.get(&x.to_string()) {
+                Some(expr) => expr.clone(),
+                _ => self.clone(),
+            },
+            _ => {
+                let new_children: Vec<Expression<'a>> = self
+                    .children
+                    .iter()
+                    .map(|child| child.apply_assignment(assignment))
+                    .collect();
+                Expression {
+                    t: self.t.clone(),
+                    children: new_children,
+                }
+            }
+        }
+    }
+}

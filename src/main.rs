@@ -1,6 +1,8 @@
 mod graphs;
+mod rules;
 
 use graphs::*;
+use rules::*;
 
 fn main() {
     let mut graph = EGraph::init();
@@ -48,5 +50,23 @@ fn main() {
     println!("{:?}", node2);
     println!("{:?}", node3);
 
-    println!("{:?}", graph.extract_all(index2, 10));
+    println!("{:?}", graph.extract_all(index2, 2));
+
+    let mut matches = vec![];
+
+    let graph_copy = graph.clone();
+
+    for rule in Rule::rules() {
+        for (assignment, eclass_index) in graph_copy.search(&rule.lhs, 3) {
+            matches.push((rule.rhs.clone(), assignment, eclass_index));
+        }
+    }
+
+    for (pattern, assignment, eclass_index) in matches {
+        let eclass_index2 = graph.add_expression(pattern.apply_assignment(&assignment));
+        graph.union(eclass_index, eclass_index2);
+    }
+    
+    println!("{:?}", graph.extract_all(index2, 2));
+    
 }
