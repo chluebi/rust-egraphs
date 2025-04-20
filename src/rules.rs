@@ -67,6 +67,17 @@ impl<'a> Rule<'a> {
                     Expression::divide(Expression::meta_variable("b"), Expression::meta_variable("c")),
                 ),
             },
+            // Associativity of multiplication and division2
+            Rule {
+                lhs: Expression::divide(
+                    Expression::meta_variable("c"),
+                    Expression::multiply(Expression::meta_variable("a"), Expression::meta_variable("b")),
+                ),
+                rhs: Expression::divide(
+                    Expression::divide(Expression::meta_variable("c"), Expression::meta_variable("a")),
+                    Expression::meta_variable("b")
+                ),
+            },
             // Distributivity of multiplication over addition (left)
             Rule {
                 lhs: Expression::multiply(
@@ -94,10 +105,20 @@ impl<'a> Rule<'a> {
                 lhs: Expression::negate(Expression::constant(0)),
                 rhs: Expression::constant(0),
             },
+            // Multiplication by minus 1
+            Rule {
+                lhs: Expression::multiply(Expression::meta_variable("a"), Expression::constant(-1)),
+                rhs: Expression::negate(Expression::meta_variable("a")),
+            },
             // Negation of a negation
             Rule {
                 lhs: Expression::negate(Expression::negate(Expression::meta_variable("a"))),
                 rhs: Expression::meta_variable("a"),
+            },
+            // Cancelling negation in division
+            Rule {
+                lhs: Expression::divide(Expression::negate(Expression::meta_variable("a")), Expression::negate(Expression::meta_variable("b"))),
+                rhs: Expression::divide(Expression::meta_variable("a"), Expression::meta_variable("b")),
             },
             // Subtraction as addition with negation
             Rule {
@@ -109,7 +130,7 @@ impl<'a> Rule<'a> {
                 lhs: Expression::divide(Expression::meta_variable("a"), Expression::constant(1)),
                 rhs: Expression::meta_variable("a"),
             },
-            // Division by the same constant
+            // Division by the same value
             Rule {
                 lhs: Expression::divide(Expression::meta_variable("a"), Expression::meta_variable("a")),
                 rhs: Expression::constant(1),
