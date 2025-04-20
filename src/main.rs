@@ -6,7 +6,9 @@ use rules::*;
 
 fn main() {
     let mut graph = EGraph::init();
-    let expression = Expression::divide(Expression::multiply(Expression::variable("x"), Expression::constant(2)), Expression::constant(2));
+    let expression = Expression::divide(Expression::multiply(Expression::variable("x"), Expression::add(
+        Expression::constant(1), Expression::constant(1)
+    )), Expression::constant(2));
 
     let index = graph.add_expression(expression);
 
@@ -29,13 +31,19 @@ fn main() {
         graph_copy = graph.clone();
 
         for rule in Rule::rules() {
-            let search_results = graph_copy.search(&rule.lhs, 4);
+            let search_results = graph_copy.search(&rule.lhs, 3);
             for (assignment, eclass_index) in search_results {
                 matches.push((rule.rhs.clone(), assignment, eclass_index));
             }
         }
 
-        
+        for (assignment, eclass_index) in graph_copy.search(&Expression::meta_variable("a"), 4) {
+            let expression = Expression::meta_variable("a").apply_assignment(&assignment);
+            if let Some(const_value) = expression.const_eval() {
+                let eclass_index2 = graph.add_expression(Expression::constant(const_value));
+                graph.union(eclass_index2, eclass_index);
+            }
+        }
 
         for (pattern, assignment, eclass_index) in matches {
             let eclass_index2 = graph.add_expression(pattern.apply_assignment(&assignment));
@@ -43,18 +51,17 @@ fn main() {
         }
     }
 
-    println!("{:?}", graph.extract_all(index, 2));
-
-    for expression in graph.extract_all(index, 2) {
+    for expression in graph.extract_all(index, 4) {
         println!("{}", expression);
     }
 
     println!("----------");
-
+    /* 
     let pattern = Expression::divide(Expression::meta_variable("a"), Expression::meta_variable("b"));
-    for (assignment, class_index) in graph.search(&pattern, 6) {
+    for (assignment, class_index) in graph.search(&pattern, 1) {
         let expression = pattern.apply_assignment(&assignment);
         println!("{} {}", expression, class_index);
     }
+    */
     
 }

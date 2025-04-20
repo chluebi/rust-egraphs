@@ -266,7 +266,7 @@ pub struct Node<'a> {
 #[derive(Debug, Clone)]
 pub enum NodeType<'a> {
     MetaVar(&'a str),
-    Const(usize),
+    Const(i64),
     Var(&'a str),
     Neg,
     Add,
@@ -364,6 +364,52 @@ impl<'a> Expression<'a> {
         }
     }
 
+    pub fn const_eval(&self) -> Option<i64> {
+        match self.t {
+            NodeType::Const(c) => Some(c),
+            NodeType::Var(_) | NodeType::MetaVar(_) => None,
+
+            NodeType::Neg => {
+                if self.children.len() == 1 {
+                    match self.children[0].const_eval() {
+                        Some(val) => val.checked_neg(),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+
+            NodeType::Add | NodeType::Sub | NodeType::Mul | NodeType::Div => {
+                if self.children.len() == 2 {
+                    let maybe_left = self.children[0].const_eval();
+                    let maybe_right = self.children[1].const_eval();
+
+                    match (maybe_left, maybe_right) {
+                        (Some(left_val), Some(right_val)) => {
+                            match self.t {
+                                NodeType::Add => left_val.checked_add(right_val),
+                                NodeType::Sub => left_val.checked_sub(right_val),
+                                NodeType::Mul => left_val.checked_mul(right_val),
+                                NodeType::Div => {
+                                    if left_val % right_val == 0 {
+                                        Some(left_val / right_val)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     pub fn into_owned(self) -> Expression<'static> {
         match self.t {
             NodeType::MetaVar(s) => Expression { t: NodeType::MetaVar(Box::leak(s.to_string().into_boxed_str())), children: self.children.into_iter().map(|c| c.into_owned()).collect() },
@@ -378,7 +424,7 @@ impl<'a> Expression<'a> {
     }
 
     /// Creates a new constant expression.
-    pub fn constant(value: usize) -> Self {
+    pub fn constant(value: i64) -> Self {
         Expression {
             t: NodeType::Const(value),
             children: Vec::new(),
