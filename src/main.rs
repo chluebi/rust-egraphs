@@ -16,6 +16,12 @@ fn main() {
     println!("{:?}", node);
     println!("{:?}", graph.extract_all(index, 2));
 
+    let pattern = Expression::divide(Expression::meta_variable("a"), Expression::meta_variable("b"));
+    for (assignment, class_index) in graph.search(&pattern, 3) {
+        let expression = pattern.apply_assignment(&assignment);
+        println!("{} {}", expression, class_index);
+    }
+
     let mut graph_copy = graph.clone();
     
     for _ in 0..3 {
@@ -29,6 +35,8 @@ fn main() {
             }
         }
 
+        
+
         for (pattern, assignment, eclass_index) in matches {
             let eclass_index2 = graph.add_expression(pattern.apply_assignment(&assignment));
             graph.union(eclass_index2, eclass_index);
@@ -39,6 +47,14 @@ fn main() {
 
     for expression in graph.extract_all(index, 2) {
         println!("{}", expression);
+    }
+
+    println!("----------");
+
+    let pattern = Expression::divide(Expression::meta_variable("a"), Expression::meta_variable("b"));
+    for (assignment, class_index) in graph.search(&pattern, 6) {
+        let expression = pattern.apply_assignment(&assignment);
+        println!("{} {}", expression, class_index);
     }
     
 }

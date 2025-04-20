@@ -84,6 +84,52 @@ impl<'a> EGraph<'a> {
         class2.children = vec![];
     }
 
+    pub fn get_representative_class(&self, class_index: usize) -> &EClass {
+        let mut class_index = class_index;
+        let mut class = self.children.get(class_index).unwrap();
+        while class.representative != class_index {
+            class_index = class.representative;
+            class = self.children.get(class.representative).unwrap();
+        }
+        return class;
+    }
+
+    pub fn extract_node(&self, node: &Node, max_recursion: usize) -> Vec<Expression> {
+        return self.extract_node_helper(node, max_recursion, 0);
+    }
+
+    pub fn extract_node_helper(
+        &self, 
+        node: &Node,
+        max_recursion: usize,
+        current_recursion: usize
+    ) -> Vec<Expression> {
+        let mut expressions = vec![];
+
+        let expression = Expression {
+            t: node.t.clone(),
+            children: vec![],
+        };
+
+        let mut child_expression_lists = vec![];
+
+        for child_index in node.children.iter() {
+            let child_expressions =
+                self.extract_all_helper(*child_index, max_recursion, current_recursion + 1);
+            child_expression_lists.push(child_expressions);
+        }
+
+        let child_expressions_product = cartesian_product(&child_expression_lists);
+
+        for child_expressions in child_expressions_product {
+            let mut new_expression = expression.clone();
+            new_expression.children = child_expressions;
+            expressions.push(new_expression.into_owned());
+        }
+
+        return expressions;
+    }
+
     pub fn extract_all(&self, class_index: usize, max_recursion: usize) -> Vec<Expression> {
         return self.extract_all_helper(class_index, max_recursion, 0);
     }
@@ -97,57 +143,87 @@ impl<'a> EGraph<'a> {
         if current_recursion > max_recursion {
             return vec![];
         }
-        let mut class_index = class_index;
-        let mut class = self.children.get(class_index).unwrap();
-        while class.representative != class_index {
-            class_index = class.representative;
-            class = self.children.get(class.representative).unwrap();
-        }
+        let class = self.get_representative_class(class_index);
 
         let mut expressions = vec![];
 
         for node in class.children.iter() {
-            let expression = Expression {
-                t: node.t.clone(),
-                children: vec![],
-            };
-
-            let mut child_expression_lists = vec![];
-
-            for child_index in node.children.iter() {
-                let child_expressions =
-                    self.extract_all_helper(*child_index, max_recursion, current_recursion + 1);
-                child_expression_lists.push(child_expressions);
-            }
-
-            let child_expressions_product = cartesian_product(&child_expression_lists);
-
-            for child_expressions in child_expressions_product {
-                let mut new_expression = expression.clone();
-                new_expression.children = child_expressions;
-                expressions.push(new_expression);
-            }
+            expressions.extend(self.extract_node_helper(node, max_recursion, current_recursion))
         }
 
         return expressions;
     }
 
-    pub fn search<'b>(&'a self, pattern: &'b Expression<'a>, max_recursion: usize) -> Vec<(Assignment<'static>, usize)> {
+    pub fn search(&self, pattern: &Expression, max_recursion: usize) -> Vec<(Assignment<'static>, usize)> {
         let mut needles = vec![];
     
         for class_index in 0..self.children.len() {
-            for expression in self.extract_all(class_index, max_recursion) {
-                if let Some(assignment) = pattern.structural_match(&expression) {
-                    let owned_assignment: HashMap<String, Expression<'static>> = assignment
-                        .into_iter()
-                        .map(|(key, expr)| (key, expr.into_owned())) // Assuming you add into_owned()
-                        .collect();
-                    needles.push((owned_assignment, class_index));
-                }
+            for assignment in self.search_in_class(class_index, pattern, max_recursion) {
+                needles.push((assignment, class_index));
             }
         }
     
         needles
+    }
+
+    pub fn search_in_class(&self, class_index: usize, pattern: &Expression, max_recursion: usize) -> Vec<Assignment<'static>> {
+        let mut needles = vec![];
+        let class = self.get_representative_class(class_index);
+
+        for node in class.children.iter() {
+
+            match pattern.t {
+                NodeType::MetaVar(x) => {
+                    for expression in self.extract_node(node, max_recursion) {
+                        let mut map: Assignment = HashMap::new();
+                        map.insert(x.to_string(), expression.into_owned());
+                        needles.push(map);
+                    }
+                }
+                _ => {
+                    if pattern.t == node.t && pattern.children.len() == node.children.len() {
+
+                        let mut child_assignments_list = vec![];
+
+                        for (pattern_child, node_child_index) in
+                            pattern.children.iter().zip(node.children.iter())
+                        {
+                            let child_assignments = self.search_in_class(*node_child_index, pattern_child, max_recursion);
+                            
+                            child_assignments_list.push(child_assignments);
+                        }
+
+                        let child_assignments_product = cartesian_product(&child_assignments_list);
+
+                        for child_assignments in child_assignments_product {
+
+                            let mut assignment: Assignment = HashMap::new();
+
+                            let merged_assignment: Option<Assignment> = (|| {
+                                for child_assignment in child_assignments {
+                                    for (key, value) in child_assignment {
+                                        if let Some(existing_value) = assignment.get(&key) {
+                                            if existing_value != &value {
+                                                return None;
+                                            }
+                                        }
+                                        assignment.insert(key, value);
+                                    }
+                                }
+
+                                return Some(assignment);
+                            })();
+
+                            if let Some(merged_assignment) = merged_assignment {
+                                needles.push(merged_assignment);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return needles;
     }
 }
 
